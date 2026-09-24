@@ -292,6 +292,7 @@ export const documentationRules: Rule[] = [
             position: ctx.locate(`DOCUMENTATION.${field}`),
             helpUri: specUrl('organization-documentation'),
             suggestion: `Use the bare handle, e.g. "${handle}".`,
+            fix: { value: handle },
           });
         } else if (value.startsWith('@')) {
           ctx.report({
@@ -302,6 +303,7 @@ export const documentationRules: Rule[] = [
             position: ctx.locate(`DOCUMENTATION.${field}`),
             helpUri: specUrl('organization-documentation'),
             suggestion: `Use "${value.slice(1)}".`,
+            fix: { value: value.slice(1) },
           });
         }
       }

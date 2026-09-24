@@ -1,30 +1,33 @@
 import { describe, expect, it } from 'vitest';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { spawn } from 'node:child_process';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { XMLValidator } from 'fast-xml-parser';
 
-const run = promisify(execFile);
 const here = dirname(fileURLToPath(import.meta.url));
 const CLI = join(here, '..', 'dist', 'cli.js');
 const fixture = (name: string): string => join(here, 'fixtures', name);
 
 /** Runs the built CLI, capturing the exit code instead of throwing. */
-async function cli(
+function cli(
   args: string[],
   input?: string,
 ): Promise<{ code: number; stdout: string; stderr: string }> {
-  try {
-    const { stdout, stderr } = await run('node', [CLI, ...args], {
+  return new Promise((resolve) => {
+    const child = spawn('node', [CLI, ...args], {
+      stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, NO_COLOR: '1' },
-      ...(input !== undefined ? {} : {}),
     });
-    return { code: 0, stdout, stderr };
-  } catch (error) {
-    const e = error as { code?: number; stdout?: string; stderr?: string };
-    return { code: e.code ?? 1, stdout: e.stdout ?? '', stderr: e.stderr ?? '' };
-  }
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => (stdout += chunk));
+    child.stderr.on('data', (chunk) => (stderr += chunk));
+    child.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr }));
+    if (input !== undefined) child.stdin.write(input);
+    child.stdin.end();
+  });
 }
 
 // These exercise the built artifact, so they depend on `npm run build`.
@@ -155,5 +158,66 @@ describe('cli', () => {
     const { stdout } = await cli([fixture('broken.toml'), '--quiet', '-f', 'json']);
     const severities = JSON.parse(stdout).diagnostics.map((d: { severity: string }) => d.severity);
     expect(new Set(severities)).toEqual(new Set(['error']));
+  });
+
+  it('--fix rewrites mechanically safe findings in place and reports them', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'stllint-'));
+    const file = join(dir, 'stellar.toml');
+    const before = [
+      'NETWORK_PASSPHRASE="Public Global Stellar Network  ;  September 2015"',
+      'TRANSFER_SERVER="https://anchor.com/sep6/"',
+      '[DOCUMENTATION]',
+      'ORG_TWITTER="@stellarOrg"',
+      '',
+    ].join('\n');
+    await writeFile(file, before, 'utf8');
+
+    // The whitespace passphrase is an error, so the file fails before the fix.
+    const original = await cli([file]);
+    expect(original.code).toBe(1);
+
+    const { code, stderr } = await cli([file, '--fix']);
+    expect(code).toBe(0);
+    expect(stderr).toContain('Fixed NETWORK_PASSPHRASE');
+    expect(stderr).toContain('Fixed TRANSFER_SERVER');
+    expect(stderr).toContain('Fixed DOCUMENTATION.ORG_TWITTER');
+    expect(await readFile(file, 'utf8')).toBe(
+      [
+        'NETWORK_PASSPHRASE="Public Global Stellar Network ; September 2015"',
+        'TRANSFER_SERVER="https://anchor.com/sep6"',
+        '[DOCUMENTATION]',
+        'ORG_TWITTER="stellarOrg"',
+        '',
+      ].join('\n'),
+    );
+
+    // A second run finds nothing to fix and rewrites nothing.
+    const again = await cli([file, '--fix']);
+    expect(again.code).toBe(0);
+    expect(again.stderr).not.toContain('Fixed');
+  });
+
+  it('--fix leaves a file with nothing to fix untouched', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'stllint-'));
+    const file = join(dir, 'stellar.toml');
+    const content = 'VERSION="2.7.0"\nTRANSFER_SERVER="https://anchor.com/sep6"\n';
+    await writeFile(file, content, 'utf8');
+
+    const { code, stderr } = await cli([file, '--fix']);
+    expect(code).toBe(0);
+    expect(stderr).not.toContain('Fixed');
+    expect(await readFile(file, 'utf8')).toBe(content);
+  });
+
+  it('rejects --fix on stdin', async () => {
+    const { code, stderr } = await cli(['--fix', '-'], 'TRANSFER_SERVER="https://a.com/x/"\n');
+    expect(code).toBe(2);
+    expect(stderr).toContain('cannot rewrite stdin');
+  });
+
+  it('rejects --fix in --domain mode', async () => {
+    const { code, stderr } = await cli(['--domain', 'example.com', '--fix']);
+    expect(code).toBe(2);
+    expect(stderr).toContain('cannot edit a file fetched over the network');
   });
 });

@@ -13,10 +13,12 @@ export { lint, lintDomain } from './lint.js';
 export { allRules, ruleIds } from './rules/index.js';
 export { formatText, formatJson, formatSarif, formatGithub, formatJunit } from './reporters.js';
 export type { TextReporterOptions } from './reporters.js';
+export { fix, type TextEdit, type FixResult } from './fix.js';
 export { probeTls } from './tls.js';
 export type { TlsProbe } from './tls.js';
 export type {
   Diagnostic,
+  Fix,
   LintOptions,
   LintResult,
   Position,

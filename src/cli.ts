@@ -10,6 +10,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { basename } from 'node:path';
 import process from 'node:process';
 import { lint, lintDomain, finalize } from './lint.js';
+import { fix, type TextEdit } from './fix.js';
 import { checkNetworkAccounts } from './network-checks.js';
 import { formatGithub, formatJson, formatJunit, formatSarif, formatText } from './reporters.js';
 import { checkDisplayDecimals } from './rules/display-decimals-audit.js';
@@ -54,6 +55,7 @@ interface Cli {
   interactive?: boolean;
   checkContracts: boolean;
   sorobanRpc?: string;
+  fix?: boolean;
 }
 
 const USAGE = `stellar-toml-lint ${VERSION}
@@ -84,6 +86,7 @@ OPTIONS
                           against the network
       --check-contracts   Verify Soroban contract and WASM TTL liveliness
       --soroban-rpc <url> Soroban RPC endpoint to use with --check-contracts
+      --fix               Rewrite mechanically safe findings in-place
       --webhook-slack <url>
                           POST a Slack Block Kit card with the run summary
       --webhook-discord <url>
@@ -120,8 +123,15 @@ async function main(argv: string[]): Promise<number> {
 
   const color = cli.color ?? shouldUseColor();
   const results: { name: string; result: LintResult }[] = [];
+  const fixes: { name: string; edits: TextEdit[] }[] = [];
 
   try {
+    if (cli.fix && cli.domain && cli.paths.length === 0) {
+      throw new Error(
+        '--fix rewrites files in place; it cannot edit a file fetched over the network.',
+      );
+    }
+
     if (cli.domain && cli.paths.length === 0) {
       results.push({
         name: cli.domain,
@@ -135,43 +145,19 @@ async function main(argv: string[]): Promise<number> {
       const paths = cli.paths.length > 0 ? cli.paths : [DEFAULT_PATH];
       for (const path of paths) {
         const source = path === '-' ? await readStdin() : await readFile(path, 'utf8');
-        let fileResult = lint(source, {
-          strict: cli.strict,
-          rules: cli.rules,
-          checkNetwork: cli.checkNetwork,
-          ...(cli.domain ? { domain: cli.domain } : {}),
-        });
+        let fileResult = await lintLocal(source, cli);
 
-        if (fileResult.parsed && (cli.checkNetwork || cli.checkContracts)) {
-          const networkDiagnostics: Diagnostic[] = [];
-
-          if (cli.checkNetwork) {
-            networkDiagnostics.push(
-              ...(await checkHorizon(fileResult.parsed, fetch, { rules: cli.rules })),
-              ...(await checkNetworkAccounts(fileResult.parsed)),
-              ...(await checkDisplayDecimals(fileResult.parsed, fetch, { rules: cli.rules })),
-              ...(await checkSep38(fileResult.parsed, fetch, { rules: cli.rules })),
-              ...(await checkRegulatedIssuerFlags(fileResult.parsed, fetch, {
-                rules: cli.rules,
-              })),
-            );
+        if (cli.fix) {
+          if (path === '-') {
+            throw new Error('--fix writes files in place; it cannot rewrite stdin.');
           }
-
-          if (cli.checkContracts) {
-            networkDiagnostics.push(
-              ...(await checkContracts(fileResult.parsed, fetch, {
-                rules: cli.rules,
-                ...(cli.sorobanRpc !== undefined ? { rpcUrl: cli.sorobanRpc } : {}),
-              })),
-            );
-          }
-
-          if (networkDiagnostics.length > 0) {
-            fileResult = finalize(
-              [...fileResult.diagnostics, ...networkDiagnostics],
-              { strict: cli.strict },
-              fileResult.parsed,
-            );
+          const fixed = fix(source, fileResult.diagnostics);
+          if (fixed.edits.length > 0) {
+            await writeFile(path, fixed.source);
+            fixes.push({ name: path, edits: fixed.edits });
+            // Re-lint the corrected text so the report and exit code describe
+            // the file as it now is, not as it was before the fixes.
+            fileResult = await lintLocal(fixed.source, cli);
           }
         }
 
@@ -247,6 +233,11 @@ async function main(argv: string[]): Promise<number> {
     }
   }
 
+  // Rewrites are reported on stderr so machine formats on stdout stay parseable.
+  if (fixes.length > 0) {
+    process.stderr.write(formatFixReport(fixes));
+  }
+
   if (cli.webhookSlack !== undefined || cli.webhookDiscord !== undefined) {
     const deliveries = await deliverWebhooks(results, {
       ...(cli.webhookSlack !== undefined ? { slack: cli.webhookSlack } : {}),
@@ -304,6 +295,71 @@ function verdict(results: { result: LintResult }[], cli: Cli): boolean {
   if (cli.strict && totals.warning > 0) return false;
   if (cli.maxWarnings !== undefined && totals.warning > cli.maxWarnings) return false;
   return true;
+}
+
+/**
+ * Lints a local source string, appending the network and contract checks when
+ * their flags are set. `--fix` re-lints with this same helper so the report and
+ * exit code after a rewrite are comparable to the original run.
+ */
+async function lintLocal(source: string, cli: Cli): Promise<LintResult> {
+  let fileResult = lint(source, {
+    strict: cli.strict,
+    rules: cli.rules,
+    checkNetwork: cli.checkNetwork,
+    ...(cli.domain ? { domain: cli.domain } : {}),
+  });
+
+  if (fileResult.parsed && (cli.checkNetwork || cli.checkContracts)) {
+    const networkDiagnostics: Diagnostic[] = [];
+
+    if (cli.checkNetwork) {
+      networkDiagnostics.push(
+        ...(await checkHorizon(fileResult.parsed, fetch, { rules: cli.rules })),
+        ...(await checkNetworkAccounts(fileResult.parsed)),
+        ...(await checkDisplayDecimals(fileResult.parsed, fetch, { rules: cli.rules })),
+        ...(await checkSep38(fileResult.parsed, fetch, { rules: cli.rules })),
+        ...(await checkRegulatedIssuerFlags(fileResult.parsed, fetch, {
+          rules: cli.rules,
+        })),
+      );
+    }
+
+    if (cli.checkContracts) {
+      networkDiagnostics.push(
+        ...(await checkContracts(fileResult.parsed, fetch, {
+          rules: cli.rules,
+          ...(cli.sorobanRpc !== undefined ? { rpcUrl: cli.sorobanRpc } : {}),
+        })),
+      );
+    }
+
+    if (networkDiagnostics.length > 0) {
+      fileResult = finalize(
+        [...fileResult.diagnostics, ...networkDiagnostics],
+        { strict: cli.strict },
+        fileResult.parsed,
+      );
+    }
+  }
+
+  return fileResult;
+}
+
+/** Human-readable list of the spans `--fix` rewrote, one line per edit. */
+function formatFixReport(fixed: { name: string; edits: TextEdit[] }[]): string {
+  return (
+    fixed
+      .map(
+        ({ name, edits }) =>
+          name +
+          '\n' +
+          edits
+            .map((e) => `  Fixed ${e.path}: "${e.old}" -> "${e.replacement}" (${e.rule})`)
+            .join('\n'),
+      )
+      .join('\n') + (fixed.length > 0 ? '\n' : '')
+  );
 }
 
 function parseArgs(argv: string[]): Cli | 'handled' {
@@ -372,6 +428,10 @@ function parseArgs(argv: string[]): Cli | 'handled' {
 
       case '--check-contracts':
         cli.checkContracts = true;
+        break;
+
+      case '--fix':
+        cli.fix = true;
         break;
 
       case '--soroban-rpc':

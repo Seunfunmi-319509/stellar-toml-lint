@@ -71,6 +71,10 @@ stellar-toml-lint public/.well-known/stellar.toml --domain example.com
 
 # Read from stdin
 cat stellar.toml | stellar-toml-lint -
+
+# Fix the mechanically safe findings in place (trailing slashes, passphrase
+# whitespace, @-prefixed or URL-valued social handles) and report what changed
+stellar-toml-lint public/.well-known/stellar.toml --fix
 ```
 
 ### Options
@@ -81,6 +85,7 @@ cat stellar.toml | stellar-toml-lint -
 | `-f, --format <fmt>`      | `text` (default), `json`, `sarif`, `github`, `junit`                              |
 | `--strict`                | Treat warnings as errors                                                          |
 | `--max-warnings <n>`      | Fail if warnings exceed `n`                                                       |
+| `--fix`                   | Rewrite mechanically safe findings in place and report what changed               |
 | `--check-network`         | Verify accounts, `HORIZON_URL`, SEP-8 flags, and `ANCHOR_QUOTE_SERVER` online     |
 | `--check-contracts`       | Verify Soroban contract and WASM TTL liveliness online                            |
 | `--soroban-rpc <url>`     | Soroban RPC endpoint for `--check-contracts` (defaults from `NETWORK_PASSPHRASE`) |

@@ -9,6 +9,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `--fix` rewrites the mechanically safe findings in place: trailing slashes on endpoint fields,
+  `NETWORK_PASSPHRASE` whitespace normalisation, and social handles carrying a leading `@` or a full
+  profile URL (both `documentation/social-handles` and `principals/social-handles`). Only the
+  offending spans are edited on the raw text — never a parse-and-reserialise — so comments and
+  formatting survive, each rewritten span is reported on stderr, and a file with nothing to fix is
+  left untouched (#9).
+
 - Text output follows the [NO_COLOR standard](https://no-color.org) explicitly: any non-empty
   `NO_COLOR` disables colour, an empty value counts as unset, and only an explicit `--color`
   overrides it. Covered by `test/no-color.test.ts` (#148).
