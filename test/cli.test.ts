@@ -69,6 +69,7 @@ describe('cli', () => {
     expect(stdout).toContain('EXIT CODES');
     expect(stdout).toContain('--check-contracts');
     expect(stdout).toContain('--soroban-rpc');
+    expect(stdout).toContain('checkstyle');
   });
 
   it('prints the version', async () => {
@@ -120,6 +121,17 @@ describe('cli', () => {
     expect(XMLValidator.validate(stdout)).toBe(true);
     expect(stdout).toContain('<testsuites');
     expect(stdout).toContain('<failure');
+  });
+
+  it('emits parseable Checkstyle XML', async () => {
+    const { stdout, code } = await cli([fixture('broken.toml'), '-f', 'checkstyle']);
+    expect(XMLValidator.validate(stdout)).toBe(true);
+    expect(stdout).toContain('<checkstyle');
+    expect(stdout).toContain('<file name=');
+    expect(stdout).toContain('severity="error"');
+    expect(stdout).toContain('source="');
+    // The format flag never changes the verdict: broken file still exits 1.
+    expect(code).toBe(1);
   });
 
   it('honours --off', async () => {
@@ -219,5 +231,21 @@ describe('cli', () => {
     const { code, stderr } = await cli(['--domain', 'example.com', '--fix']);
     expect(code).toBe(2);
     expect(stderr).toContain('cannot edit a file fetched over the network');
+  });
+});
+
+describe('cli --json-schema', () => {
+  it('exits 0 and emits a JSON schema to stdout', async () => {
+    const { code, stdout } = await cli(['--json-schema']);
+    expect(code).toBe(0);
+
+    const schema = JSON.parse(stdout) as Record<string, unknown>;
+    expect(schema.$schema).toBe('https://json-schema.org/draft/2020-12/schema');
+    expect(schema.type).toBe('object');
+
+    const properties = schema.properties as Record<string, unknown>;
+    for (const section of ['DOCUMENTATION', 'PRINCIPALS', 'CURRENCIES', 'VALIDATORS']) {
+      expect(properties[section], `missing ${section}`).toBeDefined();
+    }
   });
 });

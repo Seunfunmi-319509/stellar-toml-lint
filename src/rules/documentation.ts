@@ -263,6 +263,7 @@ export const documentationRules: Rule[] = [
         suggestion: digits
           ? `Use a leading + and digits only, e.g. "+${digits}".`
           : 'Use a leading + followed by country code and number, e.g. "+14155552671".',
+        ...(isE164(`+${digits}`) ? { fix: { value: `+${digits}` } } : {}),
       });
     },
   },
