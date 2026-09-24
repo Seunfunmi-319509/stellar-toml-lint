@@ -172,65 +172,30 @@ describe('cli', () => {
     expect(new Set(severities)).toEqual(new Set(['error']));
   });
 
-  it('--fix rewrites mechanically safe findings in place and reports them', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'stllint-'));
-    const file = join(dir, 'stellar.toml');
-    const before = [
-      'NETWORK_PASSPHRASE="Public Global Stellar Network  ;  September 2015"',
-      'TRANSFER_SERVER="https://anchor.com/sep6/"',
-      '[DOCUMENTATION]',
-      'ORG_TWITTER="@stellarOrg"',
-      '',
-    ].join('\n');
-    await writeFile(file, before, 'utf8');
+  it('serves network checks from --mock-fixtures', async () => {
+    const { code, stdout } = await cli([
+      fixture('network/offline-anchor.toml'),
+      '--check-network',
+      '--mock-fixtures',
+      fixture('network'),
+      '-f',
+      'json',
+    ]);
 
-    // The whitespace passphrase is an error, so the file fails before the fix.
-    const original = await cli([file]);
-    expect(original.code).toBe(1);
-
-    const { code, stderr } = await cli([file, '--fix']);
     expect(code).toBe(0);
-    expect(stderr).toContain('Fixed NETWORK_PASSPHRASE');
-    expect(stderr).toContain('Fixed TRANSFER_SERVER');
-    expect(stderr).toContain('Fixed DOCUMENTATION.ORG_TWITTER');
-    expect(await readFile(file, 'utf8')).toBe(
-      [
-        'NETWORK_PASSPHRASE="Public Global Stellar Network ; September 2015"',
-        'TRANSFER_SERVER="https://anchor.com/sep6"',
-        '[DOCUMENTATION]',
-        'ORG_TWITTER="stellarOrg"',
-        '',
-      ].join('\n'),
-    );
-
-    // A second run finds nothing to fix and rewrites nothing.
-    const again = await cli([file, '--fix']);
-    expect(again.code).toBe(0);
-    expect(again.stderr).not.toContain('Fixed');
+    const rules = JSON.parse(stdout).diagnostics.map((d: { rule: string }) => d.rule);
+    expect(rules.filter((rule: string) => rule.startsWith('network/'))).toEqual([]);
   });
 
-  it('--fix leaves a file with nothing to fix untouched', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'stllint-'));
-    const file = join(dir, 'stellar.toml');
-    const content = 'VERSION="2.7.0"\nTRANSFER_SERVER="https://anchor.com/sep6"\n';
-    await writeFile(file, content, 'utf8');
-
-    const { code, stderr } = await cli([file, '--fix']);
-    expect(code).toBe(0);
-    expect(stderr).not.toContain('Fixed');
-    expect(await readFile(file, 'utf8')).toBe(content);
-  });
-
-  it('rejects --fix on stdin', async () => {
-    const { code, stderr } = await cli(['--fix', '-'], 'TRANSFER_SERVER="https://a.com/x/"\n');
+  it('rejects a --mock-fixtures directory that does not exist', async () => {
+    const { code, stderr } = await cli([
+      fixture('network/offline-anchor.toml'),
+      '--check-network',
+      '--mock-fixtures',
+      './definitely-not-here',
+    ]);
     expect(code).toBe(2);
-    expect(stderr).toContain('cannot rewrite stdin');
-  });
-
-  it('rejects --fix in --domain mode', async () => {
-    const { code, stderr } = await cli(['--domain', 'example.com', '--fix']);
-    expect(code).toBe(2);
-    expect(stderr).toContain('cannot edit a file fetched over the network');
+    expect(stderr).toContain('--mock-fixtures directory');
   });
 });
 

@@ -9,6 +9,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `--mock-fixtures <dir>` serves every network-bound check (`--check-network`,
+  `--check-contracts`, and the `--domain` fetch) from recorded JSON responses under `<dir>` instead of
+  the network, so enterprise CI and air-gapped sandboxes can run them deterministically. Requests map
+  by host and path — with a short host-label fallback and `index.json` for directory URLs — a fixture
+  can set `status` and `headers` through a `body` envelope, and a request with no fixture fails with a
+  clear message rather than making an outbound request. `createFixtureFetch` is exported for
+  embedders (#48).
 - Interactive quick-fix code actions over LSP (#42): `stellar-toml-lint --lsp` runs a stdio Language
   Server that publishes diagnostics and answers `textDocument/codeAction` with `WorkspaceEdit`
   replacements for mechanically safe rules — `general/trailing-slash-in-endpoint`,
