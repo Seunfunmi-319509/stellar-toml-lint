@@ -513,7 +513,8 @@ and `ORG_GITHUB` as a valid GitHub username or `https://github.com/<username>` p
 **`[[PRINCIPALS]]`** — name and email present and well-formed; hex photo hashes of plausible length.
 
 **`[[CURRENCIES]]`** — code length and charset; exactly one of `issuer` or `contract`, both checksum
-validated; the native XLM asset handled as the special case it is; exactly one issuance policy;
+validated; the native XLM asset handled as the special case it is (including a `display_decimals`
+setting on it, which the protocol makes meaningless, reported as `info`); exactly one issuance policy;
 `status` and `anchor_asset_type` enums; `display_decimals` in 0–7; asset-anchored currencies
 requiring a valid `anchor_asset_type` and warning when `anchor_asset` is absent; anchored fiat
 requiring a declared transfer server; SEP-8 regulated assets carrying an approval server, with
@@ -538,8 +539,10 @@ balance.
 
 **Network** (with `--domain`) — reachability, `Access-Control-Allow-Origin: *`, `text/plain` content
 type, size, and the security of the TLS session: a negotiated protocol of TLS 1.0, TLS 1.1, SSLv2,
-or SSLv3, and cipher suites built on 3DES, DES, RC4, CBC, NULL, or EXPORT primitives. Nothing here
-fires for a local file, so offline linting never depends on a network connection.
+or SSLv3, and cipher suites built on 3DES, DES, RC4, CBC, NULL, or EXPORT primitives. A 404 on
+`/.well-known/stellar.toml` triggers one probe of `https://<host>/stellar.toml`: if the file is
+served there, `network/wrong-path` (error) says to move it under `.well-known`. Nothing here fires
+for a local file, so offline linting never depends on a network connection.
 
 **Network** (with `--check-network`) — queries the `HORIZON_URL` endpoint the file advertises and
 asserts it answers with a valid Horizon root document. An endpoint that is offline, misconfigured,
