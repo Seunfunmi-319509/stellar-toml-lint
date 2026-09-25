@@ -3,11 +3,12 @@ import type { Diagnostic, LintResult, Severity } from './types.js';
 export { formatHtml } from './reporters/html.js';
 
 /** Minimal ANSI helpers. Avoids a dependency for what is a dozen escape codes. */
-function makeColors(enabled: boolean) {
+export function makeColors(enabled: boolean) {
   const wrap = (open: number, close: number) => (s: string) =>
     enabled ? `[${open}m${s}[${close}m` : s;
   return {
     red: wrap(31, 39),
+    green: wrap(32, 39),
     yellow: wrap(33, 39),
     blue: wrap(34, 39),
     grey: wrap(90, 39),
