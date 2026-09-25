@@ -9,6 +9,30 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `--format markdown` emits a GitHub-flavored Markdown report built for a workflow's
+  `$GITHUB_STEP_SUMMARY`: a pass/fail header with the error, warning, and info counts, a table with a
+  row per finding, and collapsible `<details>` blocks carrying suggestions and spec links. `|`, `<`,
+  and `>` are escaped so a hostile file cannot break the table or inject markup (#61).
+- `--completion bash|zsh|fish` prints a native shell completion script covering every flag, the
+  output formats, and the rule ids accepted by `--off`/`--warn`/`--error`. The rule ids come from
+  the same registry the linter runs, so they never drift from the actual checks; an unsupported
+  shell prints to stderr and exits `2` (#60).
+- `network/sep6-missing-asset` (warning), alongside `network/sep6-info-error` and
+  `network/sep6-info-malformed`, under `--domain` or `--check-network`: when `TRANSFER_SERVER` is
+  declared, `GET <TRANSFER_SERVER>/info` is fetched with redirects followed and every non-native
+  `[[CURRENCIES]]` asset must appear in the `deposit` or `withdraw` maps, keyed by bare code or
+  `CODE:issuer` (#38).
+- `soroban/invalid-auth-contract-interface` (error) under `--check-contracts`: for
+  `WEB_AUTH_CONTRACT_ID`, the deployed WASM's `contractspecv0` custom section is parsed and the
+  contract is required to export the SEP-45 `web_auth_verify` function. An unreadable interface
+  stays silent rather than guessing (#37).
+
+- `textDocument/hover` over LSP (#36): hovering a key or a table header in `stellar.toml` shows a
+  Markdown tooltip with the qualified name (`[[CURRENCIES]].display_decimals`), the field's type
+  (`integer (0-7)`), the SEP-1 description, the permitted values where the spec enumerates them
+  (`live`, `dead`, `test`, `private`), and a link to the anchoring section of SEP-1. Documentation
+  lives in `src/spec.ts` beside the `KNOWN_*` sets the linter checks against, with a test asserting
+  the two never drift apart; whitespace, comments, and keys SEP-1 does not define show nothing.
 - `network/wrong-path` (error) under `--domain`: when `/.well-known/stellar.toml` returns HTTP 404,
   the linter probes `https://<host>/stellar.toml` once. If the root path serves the file, the
   diagnostic says so and points at the SEP-1 location; if the root probe also fails, behaviour is
@@ -20,6 +44,13 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `network/passphrase` (near miss), `documentation/social-handles`, `principals/social-handles`,
   and `documentation/phone-e164`. Diagnostics that cannot be corrected safely (parse errors,
   missing tables) offer no action. Shared fix engine lives in `src/fix.ts` for `--fix` (#9) to reuse.
+- Glob patterns in the positional file arguments (`stellar-toml-lint "configs/**/*.toml"`), expanded
+  by the linter rather than the shell so the same quoted argument works on Linux, macOS, and
+  Windows, where PowerShell and CMD do not expand globs at all. `*`, `?`, `[...]`, and `**` are
+  supported; a pattern that matches nothing reports itself and exits `2`; hidden entries are skipped
+  unless named. Multi-file runs now close with a summary line — `Checked 4 files: 3 passed, 1 failed
+(2 errors, 3 warnings)` — appended by the text reporter only, with the exit code still `1` if any
+  file failed and `0` if they all passed (#18).
 
 - Text output follows the [NO_COLOR standard](https://no-color.org) explicitly: any non-empty
   `NO_COLOR` disables colour, an empty value counts as unset, and only an explicit `--color`
@@ -51,6 +82,14 @@ to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   carries a `buy_assets` array of valid price objects, and probes `/quote` for 5xx or non-JSON 200
   answers — so a quote server returning 500s or malformed JSON fails the run instead of surfacing
   later as wallets unable to calculate transaction amounts.
+
+### Fixed
+
+- `--lsp` actually serves the protocol now. `main()` called the line-based `lspMain()`, which
+  registered a stdin listener and then fell through to `process.exit`, so the process printed
+  nothing and exited before a client could send a message. The CLI runs the framed stdio server
+  (`src/lsp/server.ts`) instead — diagnostics, quick-fix code actions, and hover — and the
+  unreachable server behind it is gone.
 
 ### Changed
 

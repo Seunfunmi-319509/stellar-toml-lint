@@ -20,6 +20,7 @@ export {
   formatJunit,
   formatHtml,
   formatCheckstyle,
+  formatMarkdown,
 } from './reporters.js';
 export type { TextReporterOptions } from './reporters.js';
 export { fix, type TextEdit, type FixResult } from './fix.js';
